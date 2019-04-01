@@ -43,8 +43,8 @@
 @property (strong, nonatomic) NSMutableArray *fileSocketArray;
 @property (strong, nonatomic) NSMutableArray *fileClientSocketArray;
 @property (strong, nonatomic) NSFileHandle *inFile;
-@property (assign, nonatomic) long long devidePart; // 每部分大小
-@property (assign, nonatomic) long long fileSize;// 文件大小
+@property (assign, nonatomic) long devidePart; // 每部分大小
+@property (assign, nonatomic) long fileSize;// 文件大小
 @property (assign, nonatomic) NSInteger writeProcessSize; // 已经传完文件大小
 
 @property (strong, nonatomic) NSMutableArray *sections;
@@ -71,7 +71,6 @@
     self.fileSocketArray = [NSMutableArray array];
     self.fileClientSocketArray = [NSMutableArray array];
     self.sections = [NSMutableArray array];
-    NSLog(@"self.fileSize - %lld",self.fileSize);
 }
 
 /** 连接端口 **/
@@ -150,13 +149,16 @@
             if ([type isEqualToNumber:@1]) {// 文件信息
                 self.fileHash = [dictionary[@"data"][@"fileHash"] mutableCopy];
                 self.fileName = [dictionary[@"data"][@"fileName"] mutableCopy];
-                NSString *fileNameStr = dictionary[@"data"][@"fileName"];
+                self.fileSize = ((NSNumber *)dictionary[@"data"][@"fileSize"]).longValue;
+                NSString *fileNameStr =  dictionary[@"data"][@"fileName"];
                 UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"是否接收" message:fileNameStr preferredStyle:UIAlertControllerStyleAlert];
                 [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
                     NSLog(@"点击取消按钮");
                     NSMutableDictionary *param = [dictionary mutableCopy];
                     [param setValue:@2 forKey:@"type"];
-                    [param[@"data"] setValue:@NO forKey:@"isAccept"];
+                    NSMutableDictionary *dataDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:@NO, @"isAccept", kSendFilePort,@"sendPort",nil];
+                    [param setValue:dataDic forKey:@"data"];
+                    
                     [self.clientSocket writeData:[BMJavaDataOutputStream toByteDataWithDic:param] withTimeout:-1 tag:0];
                 }]];
                 
@@ -165,13 +167,11 @@
                     NSString *homePath = NSHomeDirectory();
                     NSString *outPath = [homePath stringByAppendingPathComponent:self.fileName];
                     NSFileManager *fileManager = [NSFileManager defaultManager];
-                    if (![fileManager fileExistsAtPath:outPath])
+                    [fileManager removeItemAtPath:outPath error:nil];
+                    BOOL sucess = [fileManager createFileAtPath:outPath contents:nil attributes:nil];
+                    if (!sucess)
                     {
-                        BOOL sucess = [fileManager createFileAtPath:outPath contents:nil attributes:nil];
-                        if (!sucess)
-                        {
-                            return;
-                        }
+                        return;
                     }
                     NSLog(@"outPath--%@",outPath);
                     self.outfile = [NSFileHandle fileHandleForWritingAtPath:outPath];
@@ -191,12 +191,10 @@
             else if ([type isEqualToNumber:@3]) {// 暂停后开始任务
                 NSString *fileHash = dictionary[@"data"][@"fileHash"];
                 if ([self.fileHash isEqualToString:fileHash]) { // 同一个文件
-                    
                     NSMutableDictionary *param = [dictionary mutableCopy];
                     [param setValue:@4 forKey:@"type"];
-                    NSMutableDictionary *dataDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:self.sections, @"sections",nil];
+                    NSMutableDictionary *dataDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:self.sections, @"sections",self.fileHash, @"fileHash",nil];
                     [param setValue:dataDic forKey:@"data"];
-                    
                     [self.clientSocket writeData:[BMJavaDataOutputStream toByteDataWithDic:param] withTimeout:-1 tag:0];
                     [self.sections removeAllObjects];
                 }
@@ -269,7 +267,7 @@
 //    [self sendFileInfo];
     NSMutableDictionary *param = [self.fileInfoDictionary mutableCopy];
     [param setValue:@4 forKey:@"type"]; //继续传输
-    NSMutableDictionary *dataDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:self.sections, @"sections",nil];
+    NSMutableDictionary *dataDic = [NSMutableDictionary dictionaryWithObjectsAndKeys:self.sections, @"sections",self.fileHash, @"fileHash", nil];
     [param setValue:dataDic forKey:@"data"];
     [self.clientSocket writeData:[BMJavaDataOutputStream toByteDataWithDic:param] withTimeout:-1 tag:0];
     [self.sections removeAllObjects];
@@ -280,32 +278,27 @@
 -(void)updateProgress
 {
         NSInteger finishTotal = 0;
-        NSInteger totalLength = 0;
         for (int i =0; i < self.sections.count; i++) {
             NSMutableDictionary *detailDic = self.sections[i];
             NSInteger startIndex = ((NSNumber *)detailDic[@"startIndex"]).integerValue;
             NSInteger finishIndex = ((NSNumber *)detailDic[@"finishIndex"]).integerValue;
-            NSInteger endIndex = ((NSNumber *)detailDic[@"endIndex"]).integerValue;
             
             NSInteger length = finishIndex - startIndex;
             finishTotal += length;
-            if (i == self.sections.count -1) {
-                totalLength = endIndex;
-            }
         }
-        NSLog(@"send progress--%lf---finishTotal%ld", (double)finishTotal/totalLength,(long)finishTotal);
+        NSLog(@"send progress--%lf---finishTotal%ld", (double)finishTotal/self.fileSize,(long)finishTotal);
         dispatch_async(dispatch_get_main_queue(), ^{
             NSLog(@"finishTotal--%ld",(long)finishTotal);
-            self.progressView.progress = (double)finishTotal/totalLength;
+            self.progressView.progress = (double)finishTotal/self.fileSize;
         });
     
     
-    NSLog(@"receive progress--%lf", (double)finishTotal/totalLength);
-    [self showMessageWithText:[NSString stringWithFormat:@"send progress--%lf", (double)finishTotal/totalLength]];
-    self.progressView.progress = (double)finishTotal/totalLength;
+    NSLog(@"receive progress--%lf", (double)finishTotal/self.fileSize);
+    [self showMessageWithText:[NSString stringWithFormat:@"send progress--%lf", (double)finishTotal/self.fileSize]];
+    self.progressView.progress = (double)finishTotal/self.fileSize;
     
-    NSLog(@"receive finishTotal--%ld -- totalLength%ld", (long)finishTotal,(long)totalLength);
-    if (finishTotal == totalLength+1) {
+    NSLog(@"receive finishTotal--%ld -- totalLength%ld", (long)finishTotal,(long)self.fileSize);
+    if (finishTotal == self.fileSize) {
         [self.outfile closeFile];
         [self showMessageWithText:[NSString stringWithFormat:@"send finishTotal--%ld", (long)finishTotal]];
         

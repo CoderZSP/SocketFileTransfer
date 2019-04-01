@@ -301,7 +301,7 @@
             tempLength = tempLength <((NSNumber *)item[@"endIndex"]).integerValue?((NSNumber *)item[@"endIndex"]).integerValue:tempLength;
         }
         totalLength = tempLength;
-        NSLog(@"receive progress--%lf", (double)finishTotal/totalLength);
+        NSLog(@"receive progress--%lf", (double)finishTotal/(totalLength+1));
         self.progressView.progress = (double)finishTotal/totalLength;
         
         NSLog(@"receive finishTotal--%ld -- totalLength%ld", (long)finishTotal,(long)totalLength);
